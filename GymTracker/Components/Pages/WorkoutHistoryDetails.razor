@@ -1,0 +1,183 @@
+﻿@page "/history/{SessionId:int}"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Workout Details</PageTitle>
+
+<div class="page-container">
+
+    @if (isLoading)
+    {
+        <p>Loading workout...</p>
+    }
+    else if (session is null)
+    {
+        <div class="error-message">
+            Workout session not found.
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+
+            <div>
+                <p class="eyebrow">COMPLETED WORKOUT</p>
+
+                <h1>@workoutDayName</h1>
+
+                <p>
+                    @programName ·
+                    @session.Date.ToString("dddd, dd MMMM yyyy")
+                </p>
+            </div>
+
+            <button class="secondary-button"
+                    @onclick="GoBack">
+                Back
+            </button>
+
+        </div>
+
+        <div class="session-summary">
+
+            <div class="summary-item">
+                <span>Duration</span>
+                <strong>
+                    @session.Duration.ToString(@"hh\:mm\:ss")
+                </strong>
+            </div>
+
+            <div class="summary-item">
+                <span>Total Sets</span>
+                <strong>@workoutSets.Count</strong>
+            </div>
+
+            <div class="summary-item">
+                <span>Exercises</span>
+                <strong>@exerciseGroups.Count</strong>
+            </div>
+
+        </div>
+
+        <div class="history-exercise-list">
+
+            @foreach (var exercise in exerciseGroups)
+            {
+                <section class="history-exercise-card">
+
+                    <h2>@exercise.ExerciseName</h2>
+
+                    <div class="history-set-header">
+                        <span>Set</span>
+                        <span>Weight</span>
+                        <span>Reps</span>
+                    </div>
+
+                    @foreach (var set in exercise.Sets)
+                    {
+                        <div class="history-set-row">
+                            <strong>@set.SetNumber</strong>
+                            <span>@set.Weight kg</span>
+                            <span>@set.Reps reps</span>
+                        </div>
+                    }
+
+                </section>
+            }
+
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public int SessionId { get; set; }
+
+    private WorkoutSession? session;
+    private List<WorkoutSet> workoutSets = new();
+    private List<ExerciseHistoryGroup> exerciseGroups = new();
+
+    private string workoutDayName = string.Empty;
+    private string programName = string.Empty;
+
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadSession();
+    }
+
+    private async Task LoadSession()
+    {
+        isLoading = true;
+
+        session =
+            await Database.GetWorkoutSessionAsync(SessionId);
+
+        if (session is null)
+        {
+            isLoading = false;
+            return;
+        }
+
+        var workoutDay =
+            await Database.GetWorkoutDayAsync(
+                session.WorkoutDayId);
+
+        if (workoutDay is not null)
+        {
+            workoutDayName = workoutDay.Name;
+
+            var program =
+                await Database.GetWorkoutProgramAsync(
+                    workoutDay.WorkoutProgramId);
+
+            programName =
+                program?.Name ?? "Unknown Program";
+        }
+
+        workoutSets =
+            await Database.GetWorkoutSetsAsync(SessionId);
+
+        exerciseGroups.Clear();
+
+        foreach (var setGroup in workoutSets.GroupBy(
+                     set => set.ExerciseId))
+        {
+            var exercise =
+                await Database.GetExerciseAsync(
+                    setGroup.Key);
+
+            exerciseGroups.Add(new ExerciseHistoryGroup
+            {
+                ExerciseName =
+                    exercise?.Name ?? "Unknown Exercise",
+
+                Sets = setGroup
+                    .OrderBy(set => set.SetNumber)
+                    .ToList()
+            });
+        }
+
+        isLoading = false;
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/history");
+    }
+
+    private class ExerciseHistoryGroup
+    {
+        public string ExerciseName { get; set; } =
+            string.Empty;
+
+        public List<WorkoutSet> Sets { get; set; } =
+            new();
+    }
+}

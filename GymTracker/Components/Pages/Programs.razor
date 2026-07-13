@@ -1,0 +1,115 @@
+﻿@page "/programs"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Programs</PageTitle>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">TRAINING STRUCTURE</p>
+            <h1>Programs</h1>
+            <p>Create and manage your workout programs.</p>
+        </div>
+
+        <button class="primary-button"
+                @onclick="CreateProgram">
+            + New Program
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading programs...</p>
+    }
+    else if (programs.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-state-icon">📋</span>
+
+            <h2>No programs yet</h2>
+
+            <p>
+                Create your first training program such as
+                Push Pull Legs, Upper Lower, or Full Body.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="program-grid">
+
+            @foreach (var program in programs)
+            {
+                <div class="program-card">
+
+                    <div>
+                        <h2>@program.Name</h2>
+
+                        <p>
+                            Created @program.CreatedAt.ToString("dd MMM yyyy")
+                        </p>
+                    </div>
+
+                    <div class="program-actions">
+
+                        <button class="secondary-button"
+                                @onclick="() => OpenProgram(program.Id)">
+                            Open
+                        </button>
+
+                        <button class="danger-button"
+                                @onclick="() => DeleteProgram(program)">
+                            Delete
+                        </button>
+
+                    </div>
+
+                </div>
+            }
+
+        </div>
+    }
+
+</div>
+
+@code {
+    private List<WorkoutProgram> programs = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPrograms();
+    }
+
+    private async Task LoadPrograms()
+    {
+        isLoading = true;
+
+        programs = await Database.GetWorkoutProgramsAsync();
+
+        isLoading = false;
+    }
+
+    private void CreateProgram()
+    {
+        Navigation.NavigateTo("/programs/create");
+    }
+
+    private void OpenProgram(int programId)
+    {
+        Navigation.NavigateTo($"/programs/{programId}");
+    }
+
+    private async Task DeleteProgram(WorkoutProgram program)
+    {
+        await Database.DeleteWorkoutProgramAsync(program);
+
+        await LoadPrograms();
+    }
+}

@@ -1,0 +1,325 @@
+﻿@page "/workout-days/{WorkoutDayId:int}"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Workout Day</PageTitle>
+
+<div class="page-container">
+
+    @if (isLoading)
+    {
+        <p>Loading workout day...</p>
+    }
+    else if (workoutDay is null)
+    {
+        <div class="error-message">
+            Workout day not found.
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+
+            <div>
+                <p class="eyebrow">
+                    DAY @workoutDay.DayNumber
+                </p>
+
+                <h1>@workoutDay.Name</h1>
+
+                <p>Add exercises and choose planned sets.</p>
+            </div>
+
+            <button class="secondary-button"
+                    @onclick="GoBack">
+                Back
+            </button>
+
+        </div>
+
+        <div class="form-card">
+
+            <h2>Add Exercise</h2>
+
+            <div class="exercise-add-row">
+
+                <select class="form-input"
+                        @bind="selectedExerciseId">
+
+                    <option value="0">
+                        Select an exercise
+                    </option>
+
+                    @foreach (var exercise in availableExercises)
+                    {
+                        <option value="@exercise.Id">
+                            @exercise.Name
+                        </option>
+                    }
+
+                </select>
+
+                <input class="form-input planned-sets-input"
+                       type="number"
+                       min="1"
+                       max="20"
+                       @bind="plannedSets" />
+
+                <button class="primary-button"
+                        @onclick="AddExercise">
+                    Add
+                </button>
+
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="error-message">
+                    @errorMessage
+                </div>
+            }
+
+        </div>
+
+        <div class="day-exercise-list">
+
+            @if (dayExercises.Count == 0)
+            {
+                <div class="empty-state">
+
+                    <span class="empty-state-icon">💪</span>
+
+                    <h2>No exercises added</h2>
+
+                    <p>
+                        Choose an exercise from your library and add it
+                        to this workout day.
+                    </p>
+
+                </div>
+            }
+            else
+            {
+                @foreach (var item in dayExercises)
+                {
+                    <div class="day-exercise-card">
+
+                        <div>
+                            <span class="exercise-order">
+                                Exercise @item.ProgramExercise.Order
+                            </span>
+
+                            <h2>@item.Exercise.Name</h2>
+                        </div>
+
+                        <div class="exercise-set-control">
+
+                            <label>Planned sets</label>
+
+                            <input type="number"
+                                   min="1"
+                                   max="20"
+                                   value="@item.ProgramExercise.PlannedSets"
+                                   @onchange="eventArgs =>
+                                   UpdatePlannedSets(item, eventArgs)" />
+
+            </div>
+
+                        <div class="exercise-actions">
+
+                            <button class="secondary-button"
+                                    disabled="@(item.ProgramExercise.Order == 1)"
+                                    @onclick="() => MoveUp(item)">
+                                ↑
+                            </button>
+
+                            <button class="secondary-button"
+                                    disabled="@(item.ProgramExercise.Order == dayExercises.Count)"
+                                    @onclick="() => MoveDown(item)">
+                                ↓
+                            </button>
+
+                            <button class="danger-button"
+                                    @onclick="() => RemoveExercise(item)">
+                                Remove
+                            </button>
+
+                        </div>
+
+                    </div>
+                }
+            }
+
+        </div>
+
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public int WorkoutDayId { get; set; }
+
+    private WorkoutDay? workoutDay;
+
+    private List<Exercise> availableExercises = new();
+
+    private List<DayExerciseViewModel> dayExercises = new();
+
+    private int selectedExerciseId;
+    private int plannedSets = 3;
+
+    private string errorMessage = string.Empty;
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadPage();
+    }
+    private async Task MoveUp(DayExerciseViewModel item)
+    {
+        await Database.MoveProgramExerciseUpAsync(
+            item.ProgramExercise);
+
+        await LoadDayExercises();
+    }
+
+    private async Task MoveDown(DayExerciseViewModel item)
+    {
+        await Database.MoveProgramExerciseDownAsync(
+            item.ProgramExercise);
+
+        await LoadDayExercises();
+    }
+    private async Task LoadPage()
+    {
+        isLoading = true;
+
+        workoutDay = await Database.Database
+            .Table<WorkoutDay>()
+            .FirstOrDefaultAsync(day => day.Id == WorkoutDayId);
+
+        availableExercises = await Database.GetExercisesAsync();
+
+        await LoadDayExercises();
+
+        isLoading = false;
+    }
+
+    private async Task LoadDayExercises()
+    {
+        var programExercises =
+            await Database.GetProgramExercisesAsync(WorkoutDayId);
+
+        dayExercises.Clear();
+
+        foreach (var programExercise in programExercises)
+        {
+            var exercise =
+                await Database.GetExerciseAsync(programExercise.ExerciseId);
+
+            if (exercise is not null)
+            {
+                dayExercises.Add(new DayExerciseViewModel
+                {
+                    ProgramExercise = programExercise,
+                    Exercise = exercise
+                });
+            }
+        }
+    }
+
+    private async Task AddExercise()
+    {
+        errorMessage = string.Empty;
+
+        if (selectedExerciseId == 0)
+        {
+            errorMessage = "Please select an exercise.";
+            return;
+        }
+
+        if (plannedSets < 1)
+        {
+            errorMessage = "Planned sets must be at least 1.";
+            return;
+        }
+
+        var alreadyAdded = dayExercises.Any(item =>
+            item.Exercise.Id == selectedExerciseId);
+
+        if (alreadyAdded)
+        {
+            errorMessage =
+                "This exercise is already added to this workout day.";
+            return;
+        }
+
+        var nextOrder = dayExercises.Count + 1;
+
+        await Database.AddExerciseToDayAsync(new ProgramExercise
+        {
+            WorkoutDayId = WorkoutDayId,
+            ExerciseId = selectedExerciseId,
+            PlannedSets = plannedSets,
+            Order = nextOrder
+        });
+
+        selectedExerciseId = 0;
+        plannedSets = 3;
+
+        await LoadDayExercises();
+    }
+
+    private async Task UpdatePlannedSets(
+        DayExerciseViewModel item,
+        ChangeEventArgs eventArgs)
+    {
+        if (!int.TryParse(
+            eventArgs.Value?.ToString(),
+            out var newSetCount))
+        {
+            return;
+        }
+
+        if (newSetCount < 1)
+            return;
+
+        item.ProgramExercise.PlannedSets = newSetCount;
+
+        await Database.UpdateProgramExerciseAsync(
+            item.ProgramExercise);
+    }
+
+    private async Task RemoveExercise(
+    DayExerciseViewModel item)
+    {
+        await Database.RemoveExerciseFromDayAndReorderAsync(
+            item.ProgramExercise);
+
+        await LoadDayExercises();
+    }
+
+    private void GoBack()
+    {
+        if (workoutDay is null)
+        {
+            Navigation.NavigateTo("/programs");
+            return;
+        }
+
+        Navigation.NavigateTo(
+            $"/programs/{workoutDay.WorkoutProgramId}");
+    }
+
+    private class DayExerciseViewModel
+    {
+        public ProgramExercise ProgramExercise { get; set; } = new();
+
+        public Exercise Exercise { get; set; } = new();
+    }
+}

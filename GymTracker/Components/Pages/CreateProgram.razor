@@ -1,0 +1,203 @@
+﻿@page "/programs/create"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Create Program</PageTitle>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">NEW TRAINING PROGRAM</p>
+            <h1>Create Program</h1>
+            <p>Name your program and configure its workout days.</p>
+        </div>
+    </div>
+
+    <div class="form-card">
+
+        <div class="form-group">
+            <label for="programName">Program name</label>
+
+            <input id="programName"
+                   class="form-input"
+                   placeholder="Example: Push Pull Legs"
+                   @bind="programName" />
+        </div>
+
+        <div class="form-group">
+            <label for="dayCount">Number of workout days</label>
+
+            <select id="dayCount"
+                    class="form-input"
+                    value="@numberOfDays"
+                    @onchange="ChangeDayCount">
+
+                @for (var number = 1; number <= 7; number++)
+                {
+                    <option value="@number">@number</option>
+                }
+
+            </select>
+        </div>
+
+        <div class="days-section">
+
+            <h2>Workout Days</h2>
+
+            @for (var index = 0; index < dayNames.Count; index++)
+            {
+                var currentIndex = index;
+
+                <div class="form-group">
+
+                    <label>
+                        Day @(currentIndex + 1)
+                    </label>
+
+                    <input class="form-input"
+                           placeholder="@GetPlaceholder(currentIndex)"
+                           value="@dayNames[currentIndex]"
+                           @oninput="eventArgs =>
+                           UpdateDayName(currentIndex, eventArgs.Value?.ToString())" />
+
+            </div>
+                        }
+
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="error-message">
+                @errorMessage
+            </div>
+        }
+
+        <div class="form-actions">
+
+            <button class="secondary-button"
+                    type="button"
+                    @onclick="Cancel">
+                Cancel
+            </button>
+
+            <button class="primary-button"
+                    type="button"
+                    disabled="@isSaving"
+                    @onclick="SaveProgram">
+
+                @(isSaving ? "Saving..." : "Save Program")
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+@code {
+    private string programName = string.Empty;
+    private int numberOfDays = 3;
+
+    private List<string> dayNames =
+    [
+        string.Empty,
+        string.Empty,
+        string.Empty
+    ];
+
+    private string errorMessage = string.Empty;
+    private bool isSaving;
+
+    private void ChangeDayCount(ChangeEventArgs eventArgs)
+    {
+        if (!int.TryParse(eventArgs.Value?.ToString(), out var newCount))
+            return;
+
+        numberOfDays = newCount;
+
+        while (dayNames.Count < numberOfDays)
+        {
+            dayNames.Add(string.Empty);
+        }
+
+        while (dayNames.Count > numberOfDays)
+        {
+            dayNames.RemoveAt(dayNames.Count - 1);
+        }
+    }
+
+    private void UpdateDayName(int index, string? value)
+    {
+        dayNames[index] = value ?? string.Empty;
+    }
+
+    private string GetPlaceholder(int index)
+    {
+        return index switch
+        {
+            0 => "Example: Push",
+            1 => "Example: Pull",
+            2 => "Example: Legs",
+            _ => $"Workout Day {index + 1}"
+        };
+    }
+
+    private async Task SaveProgram()
+    {
+        errorMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(programName))
+        {
+            errorMessage = "Please enter a program name.";
+            return;
+        }
+
+        if (dayNames.Any(string.IsNullOrWhiteSpace))
+        {
+            errorMessage = "Please enter a name for every workout day.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            var program = new WorkoutProgram
+            {
+                Name = programName.Trim(),
+                CreatedAt = DateTime.Now
+            };
+
+            var days = dayNames
+                .Select((name, index) => new WorkoutDay
+                {
+                    DayNumber = index + 1,
+                    Name = name.Trim()
+                })
+                .ToList();
+
+            await Database.SaveProgramWithDaysAsync(program, days);
+
+            Navigation.NavigateTo("/programs");
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Unable to save program: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/programs");
+    }
+}

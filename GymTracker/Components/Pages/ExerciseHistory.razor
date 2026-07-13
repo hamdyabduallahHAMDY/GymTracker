@@ -1,0 +1,492 @@
+﻿@page "/exercises/{ExerciseId:int}/history"
+
+@using GymTracker.Data
+@using GymTracker.Models
+@using Microsoft.AspNetCore.Components.Rendering
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Exercise History</PageTitle>
+
+<div class="page-container">
+
+    @if (isLoading)
+    {
+        <p>Loading exercise history...</p>
+    }
+    else if (exercise is null)
+    {
+        <div class="error-message">
+            Exercise not found.
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">EXERCISE PROGRESS</p>
+
+                <h1>@exercise.Name</h1>
+
+                <p>
+                    Every point represents one recorded set:
+                    weight on the X-axis and reps on the Y-axis.
+                </p>
+            </div>
+
+            <button class="secondary-button"
+                    @onclick="GoBack">
+                Back
+            </button>
+        </div>
+
+        @if (records.Count == 0)
+        {
+            <div class="empty-state">
+                <span class="empty-state-icon">📈</span>
+
+                <h2>No history yet</h2>
+
+                <p>
+                    Complete a workout containing this exercise
+                    to start tracking your sets.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="exercise-record-summary">
+
+                <div class="summary-item">
+                    <span>Best Weight</span>
+
+                    <strong>
+                        @records.Max(record => record.Weight).ToString("0.#") kg
+                    </strong>
+                </div>
+
+                <div class="summary-item">
+                    <span>Highest Reps</span>
+
+                    <strong>
+                        @records.Max(record => record.Reps)
+                    </strong>
+                </div>
+
+                <div class="summary-item">
+                    <span>Total Sets</span>
+
+                    <strong>
+                        @records.Count
+                    </strong>
+                </div>
+
+            </div>
+
+            <section class="chart-card">
+
+                <div class="chart-heading">
+                    <div>
+                        <h2>Weight × Reps</h2>
+
+                        <p>
+                            X-axis: weight in kilograms.
+                            Y-axis: repetitions.
+                        </p>
+                    </div>
+                </div>
+
+                @BuildScatterChart()
+
+            </section>
+
+            <section class="exercise-history-table-card">
+
+                <h2>Recorded Sets</h2>
+
+                <div class="exercise-history-header">
+                    <span>Date</span>
+                    <span>Weight</span>
+                    <span>Reps</span>
+                    <span>Set</span>
+                </div>
+
+                @foreach (var record in records
+                    .OrderByDescending(record => record.Date)
+                    .ThenBy(record => record.SetNumber))
+                {
+                    <div class="exercise-history-row">
+                        <span>
+                            @record.Date.ToString("dd MMM yyyy")
+                        </span>
+
+                        <strong>
+                            @record.Weight.ToString("0.#") kg
+                        </strong>
+
+                        <strong>
+                            @record.Reps
+                        </strong>
+
+                        <span>
+                            @record.SetNumber
+                        </span>
+                    </div>
+                }
+
+            </section>
+        }
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public int ExerciseId { get; set; }
+
+    private Exercise? exercise;
+
+    private List<ExerciseSetRecord> records = new();
+
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadHistory();
+    }
+
+    private async Task LoadHistory()
+    {
+        isLoading = true;
+
+        exercise =
+            await Database.GetExerciseAsync(ExerciseId);
+
+        if (exercise is null)
+        {
+            isLoading = false;
+            return;
+        }
+
+        var sets =
+            await Database.GetWorkoutSetsForExerciseAsync(
+                ExerciseId);
+
+        records.Clear();
+
+        foreach (var set in sets)
+        {
+            var session =
+                await Database.GetWorkoutSessionAsync(
+                    set.WorkoutSessionId);
+
+            if (session is null)
+                continue;
+
+            records.Add(new ExerciseSetRecord
+            {
+                Date = session.Date,
+                Weight = set.Weight,
+                Reps = set.Reps,
+                SetNumber = set.SetNumber
+            });
+        }
+
+        records = records
+            .OrderBy(record => record.Date)
+            .ThenBy(record => record.SetNumber)
+            .ToList();
+
+        isLoading = false;
+    }
+
+    private RenderFragment BuildScatterChart() => builder =>
+    {
+        const double width = 760;
+        const double height = 420;
+
+        const double left = 70;
+        const double right = 30;
+        const double top = 30;
+        const double bottom = 65;
+
+        var chartWidth =
+            width - left - right;
+
+        var chartHeight =
+            height - top - bottom;
+
+        var minimumWeight =
+            Math.Max(0, records.Min(record => record.Weight) - 5);
+
+        var maximumWeight =
+            records.Max(record => record.Weight) + 5;
+
+        var maximumReps =
+            Math.Max(1, records.Max(record => record.Reps) + 2);
+
+        if (Math.Abs(maximumWeight - minimumWeight) < 0.01)
+        {
+            maximumWeight = minimumWeight + 10;
+        }
+
+        var sequence = 0;
+
+        builder.OpenElement(sequence++, "div");
+
+        builder.AddAttribute(
+            sequence++,
+            "class",
+            "svg-chart-wrapper");
+
+        builder.OpenElement(sequence++, "svg");
+
+        builder.AddAttribute(
+            sequence++,
+            "viewBox",
+            $"0 0 {width} {height}");
+
+        builder.AddAttribute(
+            sequence++,
+            "class",
+            "exercise-scatter-chart");
+
+        builder.AddAttribute(
+            sequence++,
+            "role",
+            "img");
+
+        builder.AddAttribute(
+            sequence++,
+            "aria-label",
+            "Scatter graph showing weight on the horizontal axis and repetitions on the vertical axis.");
+
+        // Horizontal grid lines and reps labels.
+        const int yGridCount = 5;
+
+        for (var index = 0;
+             index <= yGridCount;
+             index++)
+        {
+            var value =
+                maximumReps * index / yGridCount;
+
+            var y =
+                top +
+                chartHeight -
+                value / maximumReps * chartHeight;
+
+            builder.OpenElement(sequence++, "line");
+
+            builder.AddAttribute(sequence++, "x1", left);
+            builder.AddAttribute(sequence++, "x2", width - right);
+            builder.AddAttribute(sequence++, "y1", y);
+            builder.AddAttribute(sequence++, "y2", y);
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                "chart-grid-line");
+
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "text");
+
+            builder.AddAttribute(sequence++, "x", left - 12);
+            builder.AddAttribute(sequence++, "y", y + 5);
+            builder.AddAttribute(
+                sequence++,
+                "text-anchor",
+                "end");
+
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                "chart-axis-label");
+
+         builder.AddContent(
+    sequence++,
+    value.ToString("0"));
+
+            builder.CloseElement();
+        }
+
+        // Vertical grid lines and weight labels.
+        const int xGridCount = 5;
+
+        for (var index = 0;
+             index <= xGridCount;
+             index++)
+        {
+            var value =
+                minimumWeight +
+                (maximumWeight - minimumWeight) *
+                index /
+                xGridCount;
+
+            var x =
+                left +
+                index * chartWidth / xGridCount;
+
+            builder.OpenElement(sequence++, "line");
+
+            builder.AddAttribute(sequence++, "x1", x);
+            builder.AddAttribute(sequence++, "x2", x);
+            builder.AddAttribute(sequence++, "y1", top);
+            builder.AddAttribute(
+                sequence++,
+                "y2",
+                height - bottom);
+
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                "chart-grid-line");
+
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "text");
+
+            builder.AddAttribute(sequence++, "x", x);
+            builder.AddAttribute(
+                sequence++,
+                "y",
+                height - bottom + 25);
+
+            builder.AddAttribute(
+                sequence++,
+                "text-anchor",
+                "middle");
+
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                "chart-axis-label");
+
+            builder.AddContent(
+                sequence++,
+                value.ToString("0.#"));
+
+            builder.CloseElement();
+        }
+
+        // X-axis title.
+        builder.OpenElement(sequence++, "text");
+
+        builder.AddAttribute(
+            sequence++,
+            "x",
+            left + chartWidth / 2);
+
+        builder.AddAttribute(
+            sequence++,
+            "y",
+            height - 12);
+
+        builder.AddAttribute(
+            sequence++,
+            "text-anchor",
+            "middle");
+
+        builder.AddAttribute(
+            sequence++,
+            "class",
+            "chart-axis-title");
+
+        builder.AddContent(
+            sequence++,
+            "Weight (kg)");
+
+        builder.CloseElement();
+
+        // Y-axis title.
+        builder.OpenElement(sequence++, "text");
+
+        builder.AddAttribute(
+            sequence++,
+            "x",
+            20);
+
+        builder.AddAttribute(
+            sequence++,
+            "y",
+            top + chartHeight / 2);
+
+        builder.AddAttribute(
+            sequence++,
+            "text-anchor",
+            "middle");
+
+        builder.AddAttribute(
+            sequence++,
+            "transform",
+            $"rotate(-90 20 {top + chartHeight / 2})");
+
+        builder.AddAttribute(
+            sequence++,
+            "class",
+            "chart-axis-title");
+
+        builder.AddContent(
+            sequence++,
+            "Reps");
+
+        builder.CloseElement();
+
+        // Scatter points.
+        foreach (var record in records)
+        {
+            var x =
+                left +
+                (record.Weight - minimumWeight) /
+                (maximumWeight - minimumWeight) *
+                chartWidth;
+
+            var y =
+                top +
+                chartHeight -
+                record.Reps /
+                maximumReps *
+                chartHeight;
+
+            builder.OpenElement(sequence++, "circle");
+
+            builder.AddAttribute(sequence++, "cx", x);
+            builder.AddAttribute(sequence++, "cy", y);
+            builder.AddAttribute(sequence++, "r", 7);
+
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                "scatter-point");
+
+            builder.OpenElement(sequence++, "title");
+
+            builder.AddContent(
+                sequence++,
+                $"{record.Weight:0.#} kg × {record.Reps} reps — {record.Date:dd MMM yyyy}");
+
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/exercises");
+    }
+
+    private class ExerciseSetRecord
+    {
+        public DateTime Date { get; set; }
+
+        public double Weight { get; set; }
+
+        public int Reps { get; set; }
+
+        public int SetNumber { get; set; }
+    }
+    }

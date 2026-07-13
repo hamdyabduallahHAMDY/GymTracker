@@ -1,0 +1,227 @@
+﻿@page "/exercises"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Exercises</PageTitle>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">EXERCISE LIBRARY</p>
+
+            <h1>Exercise Library</h1>
+
+            <p>
+                Create exercises and track your performance history.
+            </p>
+        </div>
+    </div>
+
+    <div class="form-card">
+
+        <div class="form-group">
+            <label for="exerciseName">
+                Exercise name
+            </label>
+
+            <input id="exerciseName"
+                   class="form-input"
+                   placeholder="Example: Bench Press"
+                   @bind="newExerciseName"
+                   @bind:event="oninput" />
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="error-message">
+                @errorMessage
+            </div>
+        }
+
+        <button class="primary-button"
+                disabled="@isSaving"
+                @onclick="AddExercise">
+
+            @(isSaving ? "Adding..." : "+ Add Exercise")
+
+        </button>
+
+    </div>
+
+    <div class="exercise-library-section">
+
+        @if (isLoading)
+        {
+            <p>Loading exercises...</p>
+        }
+        else if (exercises.Count == 0)
+        {
+            <div class="empty-state">
+
+                <span class="empty-state-icon">
+                    💪
+                </span>
+
+                <h2>No exercises yet</h2>
+
+                <p>
+                    Add your first exercise, such as Bench Press,
+                    Squat, Lat Pulldown, or Shoulder Press.
+                </p>
+
+            </div>
+        }
+        else
+        {
+            <div class="exercise-library-list">
+
+                @foreach (var exercise in exercises)
+                {
+                    <article class="exercise-library-card">
+
+                        <div class="exercise-library-info">
+
+                            <span class="exercise-library-icon">
+                                🏋️
+                            </span>
+
+                            <div>
+                                <h2>@exercise.Name</h2>
+
+                                <p>
+                                    View weight and repetition progress.
+                                </p>
+                            </div>
+
+                        </div>
+
+                        <div class="exercise-actions">
+
+                            <button class="secondary-button"
+                                    @onclick="() => OpenHistory(exercise.Id)">
+                                History
+                            </button>
+
+                            <button class="danger-button"
+                                    disabled="@isDeleting"
+                                    @onclick="() => DeleteExercise(exercise)">
+                                Delete
+                            </button>
+
+                        </div>
+
+                    </article>
+                }
+
+            </div>
+        }
+
+    </div>
+
+</div>
+
+@code {
+    private List<Exercise> exercises = new();
+
+    private string newExerciseName = string.Empty;
+    private string errorMessage = string.Empty;
+
+    private bool isLoading = true;
+    private bool isSaving;
+    private bool isDeleting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadExercises();
+    }
+
+    private async Task LoadExercises()
+    {
+        isLoading = true;
+
+        exercises = await Database.GetExercisesAsync();
+
+        isLoading = false;
+    }
+
+    private async Task AddExercise()
+    {
+        errorMessage = string.Empty;
+
+        var trimmedName = newExerciseName.Trim();
+
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            errorMessage = "Please enter an exercise name.";
+            return;
+        }
+
+        var exerciseAlreadyExists = exercises.Any(exercise =>
+            exercise.Name.Equals(
+                trimmedName,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (exerciseAlreadyExists)
+        {
+            errorMessage = "This exercise already exists.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            await Database.SaveExerciseAsync(
+                new Exercise
+                {
+                    Name = trimmedName
+                });
+
+            newExerciseName = string.Empty;
+
+            await LoadExercises();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Unable to add exercise: {exception.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteExercise(Exercise exercise)
+    {
+        errorMessage = string.Empty;
+        isDeleting = true;
+
+        try
+        {
+            await Database.DeleteExerciseAsync(exercise);
+
+            await LoadExercises();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Unable to delete exercise: {exception.Message}";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private void OpenHistory(int exerciseId)
+    {
+        Navigation.NavigateTo(
+            $"/exercises/{exerciseId}/history");
+    }
+}

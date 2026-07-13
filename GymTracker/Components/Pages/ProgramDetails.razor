@@ -1,0 +1,92 @@
+﻿@page "/programs/{ProgramId:int}"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Program Details</PageTitle>
+
+<div class="page-container">
+
+    @if (isLoading)
+    {
+        <p>Loading program...</p>
+    }
+    else if (program is null)
+    {
+        <div class="error-message">
+            Program not found.
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">WORKOUT PROGRAM</p>
+                <h1>@program.Name</h1>
+                <p>Select a workout day and manage its exercises.</p>
+            </div>
+
+            <button class="secondary-button"
+                    @onclick="GoBack">
+                Back
+            </button>
+        </div>
+
+        <div class="workout-day-grid">
+
+            @foreach (var day in workoutDays)
+            {
+                <button class="workout-day-card"
+                        @onclick="() => OpenDay(day.Id)">
+
+                    <span class="day-number">
+                        Day @day.DayNumber
+                    </span>
+
+                    <h2>@day.Name</h2>
+
+                    <p>Manage exercises</p>
+
+                </button>
+            }
+
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public int ProgramId { get; set; }
+
+    private WorkoutProgram? program;
+    private List<WorkoutDay> workoutDays = new();
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+
+        program = await Database.GetWorkoutProgramAsync(ProgramId);
+
+        if (program is not null)
+        {
+            workoutDays = await Database.GetWorkoutDaysAsync(ProgramId);
+        }
+
+        isLoading = false;
+    }
+
+    private void OpenDay(int workoutDayId)
+    {
+        Navigation.NavigateTo($"/workout-days/{workoutDayId}");
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/programs");
+    }
+}

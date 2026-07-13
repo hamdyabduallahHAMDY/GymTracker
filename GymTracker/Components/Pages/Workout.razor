@@ -1,0 +1,145 @@
+﻿@page "/workout"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Start Workout</PageTitle>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">TRAINING SESSION</p>
+            <h1>Start Workout</h1>
+            <p>Select a program and workout day.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading...</p>
+    }
+    else if (programs.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-state-icon">🏋️</span>
+
+            <h2>No programs available</h2>
+
+            <p>
+                Create a workout program before starting a session.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="form-card">
+
+            <div class="form-group">
+                <label>Program</label>
+
+                <select class="form-input"
+                        value="@selectedProgramId"
+                        @onchange="ProgramChanged">
+
+                    <option value="0">Select a program</option>
+
+                    @foreach (var program in programs)
+                    {
+                        <option value="@program.Id">
+                            @program.Name
+                        </option>
+                    }
+
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Workout Day</label>
+
+                <select class="form-input"
+                        @bind="selectedWorkoutDayId"
+                        disabled="@(workoutDays.Count == 0)">
+
+                    <option value="0">Select a workout day</option>
+
+                    @foreach (var day in workoutDays)
+                    {
+                        <option value="@day.Id">
+                            Day @day.DayNumber — @day.Name
+                        </option>
+                    }
+
+                </select>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="error-message">
+                    @errorMessage
+                </div>
+            }
+
+            <button class="primary-button"
+                    @onclick="StartWorkout">
+                Start Workout
+            </button>
+
+        </div>
+    }
+
+</div>
+
+@code {
+    private List<WorkoutProgram> programs = new();
+    private List<WorkoutDay> workoutDays = new();
+
+    private int selectedProgramId;
+    private int selectedWorkoutDayId;
+
+    private string errorMessage = string.Empty;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        programs = await Database.GetWorkoutProgramsAsync();
+        isLoading = false;
+    }
+
+    private async Task ProgramChanged(ChangeEventArgs eventArgs)
+    {
+        selectedWorkoutDayId = 0;
+        workoutDays.Clear();
+
+        if (!int.TryParse(
+            eventArgs.Value?.ToString(),
+            out selectedProgramId))
+        {
+            selectedProgramId = 0;
+            return;
+        }
+
+        if (selectedProgramId == 0)
+            return;
+
+        workoutDays =
+            await Database.GetWorkoutDaysAsync(selectedProgramId);
+    }
+
+    private void StartWorkout()
+    {
+        errorMessage = string.Empty;
+
+        if (selectedWorkoutDayId == 0)
+        {
+            errorMessage = "Please select a workout day.";
+            return;
+        }
+
+        Navigation.NavigateTo(
+            $"/workout/start/{selectedWorkoutDayId}");
+    }
+}

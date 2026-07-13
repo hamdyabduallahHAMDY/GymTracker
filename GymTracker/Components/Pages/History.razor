@@ -1,0 +1,146 @@
+﻿@page "/history"
+
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Workout History</PageTitle>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">YOUR PROGRESS</p>
+            <h1>Workout History</h1>
+            <p>Review your completed training sessions.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading workout history...</p>
+    }
+    else if (sessions.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-state-icon">📈</span>
+
+            <h2>No recorded workouts</h2>
+
+            <p>
+                Complete your first workout and it will appear here.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="history-list">
+
+            @foreach (var session in sessions)
+            {
+                <article class="history-card">
+
+                    <div>
+                        <span class="history-date">
+                            @session.Session.Date.ToString("dddd, dd MMM yyyy")
+                        </span>
+
+                        <h2>@session.DayName</h2>
+
+                        <p>@session.ProgramName</p>
+                    </div>
+
+                    <div class="history-stats">
+                        <span>
+                            ⏱ @FormatDuration(session.Session.Duration)
+                        </span>
+
+                        <span>
+                            🏋️ @session.TotalSets sets
+                        </span>
+                    </div>
+
+                    <button class="secondary-button"
+                            @onclick="() => OpenSession(session.Session.Id)">
+                        View Details
+                    </button>
+
+                </article>
+            }
+
+        </div>
+    }
+
+</div>
+
+@code {
+    private List<HistorySessionViewModel> sessions = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadHistory();
+    }
+
+    private async Task LoadHistory()
+    {
+        isLoading = true;
+
+        var savedSessions =
+            await Database.GetWorkoutSessionsAsync();
+
+        sessions.Clear();
+
+        foreach (var session in savedSessions)
+        {
+            var workoutDay =
+                await Database.GetWorkoutDayAsync(
+                    session.WorkoutDayId);
+
+            if (workoutDay is null)
+                continue;
+
+            var program =
+                await Database.GetWorkoutProgramAsync(
+                    workoutDay.WorkoutProgramId);
+
+            var sets =
+                await Database.GetWorkoutSetsAsync(session.Id);
+
+            sessions.Add(new HistorySessionViewModel
+            {
+                Session = session,
+                DayName = workoutDay.Name,
+                ProgramName = program?.Name ?? "Unknown Program",
+                TotalSets = sets.Count
+            });
+        }
+
+        isLoading = false;
+    }
+
+    private void OpenSession(int sessionId)
+    {
+        Navigation.NavigateTo($"/history/{sessionId}");
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        return duration.ToString(@"hh\:mm\:ss");
+    }
+
+    private class HistorySessionViewModel
+    {
+        public WorkoutSession Session { get; set; } = new();
+
+        public string ProgramName { get; set; } =
+            string.Empty;
+
+        public string DayName { get; set; } =
+            string.Empty;
+
+        public int TotalSets { get; set; }
+    }
+}

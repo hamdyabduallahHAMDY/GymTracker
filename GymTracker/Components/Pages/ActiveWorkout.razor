@@ -1,0 +1,396 @@
+﻿@page "/workout/start/{WorkoutDayId:int}"
+
+@using System.Diagnostics
+@using GymTracker.Data
+@using GymTracker.Models
+
+@inject AppDatabase Database
+@inject NavigationManager Navigation
+
+<PageTitle>Active Workout</PageTitle>
+
+<div class="page-container">
+
+    @if (isLoading)
+    {
+        <p>Loading workout...</p>
+    }
+    else if (workoutDay is null)
+    {
+        <div class="error-message">
+            Workout day not found.
+        </div>
+    }
+    else if (exercises.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-state-icon">💪</span>
+
+            <h2>No exercises in this workout</h2>
+
+            <p>
+                Add exercises to this workout day before starting.
+            </p>
+
+            <button class="secondary-button"
+                    @onclick="CancelWorkout">
+                Back
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="active-workout-header">
+
+            <div>
+                <p class="eyebrow">ACTIVE WORKOUT</p>
+                <h1>@workoutDay.Name</h1>
+                <p>Enter your weight and repetitions.</p>
+            </div>
+
+            <div class="workout-timer">
+                ⏱ @elapsedTime
+            </div>
+
+        </div>
+
+        <div class="active-exercise-list">
+
+            @foreach (var exercise in exercises)
+            {
+                <section class="active-exercise-card">
+
+                    <div class="active-exercise-title">
+                        <div>
+                            <span class="exercise-order">
+                                Exercise @exercise.Order
+                            </span>
+
+                            <h2>@exercise.ExerciseName</h2>
+                        </div>
+
+                        <button class="secondary-button"
+                                @onclick="() => AddSet(exercise)">
+                            + Add Set
+                        </button>
+                    </div>
+
+                    <div class="set-table">
+
+                        <div class="set-table-header">
+                            <span>Set</span>
+                            <span>Weight (kg)</span>
+                            <span>Reps</span>
+                            <span></span>
+                        </div>
+
+                        @for (var index = 0;
+                                        index < exercise.Sets.Count;
+                                        index++)
+                        {
+                            var currentIndex = index;
+                            var set = exercise.Sets[currentIndex];
+
+                            <div class="set-row">
+
+                                <strong>@(currentIndex + 1)</strong>
+
+                                <input type="number"
+                                       min="0"
+                                       step="0.5"
+                                       inputmode="decimal"
+                                       @bind="set.Weight" />
+
+                                <input type="number"
+                                       min="0"
+                                       inputmode="numeric"
+                                       @bind="set.Reps" />
+
+                                <button class="remove-set-button"
+                                        disabled="@(exercise.Sets.Count == 1)"
+                                        @onclick="() =>
+                                        RemoveSet(exercise, currentIndex)">
+                        ×
+                    </button>
+
+                            </div>
+                                }
+
+                    </div>
+
+                </section>
+            }
+
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="error-message workout-error">
+                @errorMessage
+            </div>
+        }
+
+        <div class="workout-finish-actions">
+
+            <button class="secondary-button"
+                    disabled="@isSaving"
+                    @onclick="CancelWorkout">
+                Cancel
+            </button>
+
+            <button class="primary-button"
+                    disabled="@isSaving"
+                    @onclick="FinishWorkout">
+
+                @(isSaving ? "Saving..." : "Finish Workout")
+
+            </button>
+
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public int WorkoutDayId { get; set; }
+
+    private WorkoutDay? workoutDay;
+    private List<WorkoutExerciseEntry> exercises = new();
+
+    private readonly Stopwatch stopwatch = new();
+    private PeriodicTimer? timer;
+    private CancellationTokenSource? timerCancellation;
+
+    private string elapsedTime = "00:00:00";
+    private string errorMessage = string.Empty;
+
+    private bool isLoading = true;
+    private bool isSaving;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadWorkout();
+    }
+
+    private async Task LoadWorkout()
+    {
+        isLoading = true;
+
+        workoutDay =
+            await Database.GetWorkoutDayAsync(WorkoutDayId);
+
+        if (workoutDay is null)
+        {
+            isLoading = false;
+            return;
+        }
+
+        var programExercises =
+            await Database.GetProgramExercisesAsync(WorkoutDayId);
+
+        exercises.Clear();
+
+        foreach (var programExercise in programExercises)
+        {
+            var exercise =
+                await Database.GetExerciseAsync(
+                    programExercise.ExerciseId);
+
+            if (exercise is null)
+                continue;
+
+            var entry = new WorkoutExerciseEntry
+            {
+                ExerciseId = exercise.Id,
+                ExerciseName = exercise.Name,
+                Order = programExercise.Order
+            };
+
+            for (var setNumber = 0;
+                 setNumber < programExercise.PlannedSets;
+                 setNumber++)
+            {
+                entry.Sets.Add(new WorkoutSetEntry());
+            }
+
+            exercises.Add(entry);
+        }
+
+        exercises = exercises
+            .OrderBy(item => item.Order)
+            .ToList();
+
+        isLoading = false;
+
+        if (exercises.Count > 0 && !stopwatch.IsRunning)
+        {
+            StartTimer();
+        }
+    }
+
+    private void StartTimer()
+    {
+        stopwatch.Start();
+
+        timerCancellation = new CancellationTokenSource();
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        _ = UpdateTimerAsync(timerCancellation.Token);
+    }
+
+    private async Task UpdateTimerAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (timer is not null &&
+                   await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                elapsedTime =
+                    stopwatch.Elapsed.ToString(@"hh\:mm\:ss");
+
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer stopped normally.
+        }
+    }
+
+    private void AddSet(WorkoutExerciseEntry exercise)
+    {
+        exercise.Sets.Add(new WorkoutSetEntry());
+    }
+
+    private void RemoveSet(
+        WorkoutExerciseEntry exercise,
+        int index)
+    {
+        if (exercise.Sets.Count <= 1)
+            return;
+
+        exercise.Sets.RemoveAt(index);
+    }
+
+    private async Task FinishWorkout()
+    {
+        errorMessage = string.Empty;
+
+        var completedSets = exercises
+            .SelectMany(exercise =>
+                exercise.Sets.Select((set, index) => new
+                {
+                    exercise.ExerciseId,
+                    SetNumber = index + 1,
+                    set.Weight,
+                    set.Reps
+                }))
+            .Where(set => set.Weight > 0 || set.Reps > 0)
+            .ToList();
+
+        if (completedSets.Count == 0)
+        {
+            errorMessage =
+                "Enter weight or repetitions for at least one set.";
+            return;
+        }
+
+        if (completedSets.Any(set =>
+                set.Weight < 0 || set.Reps < 0))
+        {
+            errorMessage =
+                "Weight and repetitions cannot be negative.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            StopTimer();
+
+            var session = new WorkoutSession
+            {
+                WorkoutDayId = WorkoutDayId,
+                Date = DateTime.Now,
+                Duration = stopwatch.Elapsed
+            };
+
+            await Database.SaveWorkoutSessionAsync(session);
+
+            foreach (var set in completedSets)
+            {
+                await Database.SaveWorkoutSetAsync(
+                    new WorkoutSet
+                    {
+                        WorkoutSessionId = session.Id,
+                        ExerciseId = set.ExerciseId,
+                        SetNumber = set.SetNumber,
+                        Weight = set.Weight,
+                        Reps = set.Reps
+                    });
+            }
+
+            Navigation.NavigateTo("/history");
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Unable to save workout: {exception.Message}";
+
+            if (!stopwatch.IsRunning)
+            {
+                StartTimer();
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void CancelWorkout()
+    {
+        StopTimer();
+        Navigation.NavigateTo("/workout");
+    }
+
+    private void StopTimer()
+    {
+        stopwatch.Stop();
+
+        timerCancellation?.Cancel();
+        timerCancellation?.Dispose();
+        timerCancellation = null;
+
+        timer?.Dispose();
+        timer = null;
+    }
+
+    public void Dispose()
+    {
+        StopTimer();
+    }
+
+    private class WorkoutExerciseEntry
+    {
+        public int ExerciseId { get; set; }
+
+        public string ExerciseName { get; set; } =
+            string.Empty;
+
+        public int Order { get; set; }
+
+        public List<WorkoutSetEntry> Sets { get; set; } =
+            new();
+    }
+
+    private class WorkoutSetEntry
+    {
+        public double Weight { get; set; }
+
+        public int Reps { get; set; }
+    }
+}
