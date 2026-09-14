@@ -5,141 +5,310 @@
 
 @inject AppDatabase Database
 @inject NavigationManager Navigation
+@inject IServiceProvider ServiceProvider
 
 <PageTitle>Start Workout</PageTitle>
 
 <div class="page-container">
 
     <div class="page-header">
+
         <div>
-            <p class="eyebrow">TRAINING SESSION</p>
-            <h1>Start Workout</h1>
-            <p>Select a program and workout day.</p>
+            <p class="eyebrow">
+                TRAINING SESSION
+            </p>
+
+            <h1>
+                Start Workout
+            </h1>
+
+            <p>
+                Choose one of your fixed workout days.
+            </p>
         </div>
+
     </div>
+
 
     @if (isLoading)
     {
-        <p>Loading...</p>
-    }
-    else if (programs.Count == 0)
-    {
-        <div class="empty-state">
-            <span class="empty-state-icon">🏋️</span>
-
-            <h2>No programs available</h2>
-
-            <p>
-                Create a workout program before starting a session.
-            </p>
-        </div>
+        <p>
+            Loading...
+        </p>
     }
     else
     {
-        <div class="form-card">
 
-            <div class="form-group">
-                <label>Program</label>
+        @if (unfinishedSession is not null &&
+            unfinishedWorkoutDay is not null)
+        {
+            <div class="resume-workout-card">
 
-                <select class="form-input"
-                        value="@selectedProgramId"
-                        @onchange="ProgramChanged">
+                <div>
 
-                    <option value="0">Select a program</option>
+                    <p class="eyebrow">
+                        UNFINISHED WORKOUT
+                    </p>
 
-                    @foreach (var program in programs)
-                    {
-                        <option value="@program.Id">
-                            @program.Name
-                        </option>
-                    }
+                    <h2>
+                        @unfinishedWorkoutDay.Name
+                    </h2>
 
-                </select>
-            </div>
+                    <p>
+                        Started:
+                        @unfinishedSession.Date.ToString(
+                        "dd MMM yyyy HH:mm")
+            </p>
 
-            <div class="form-group">
-                <label>Workout Day</label>
+        </div>
 
-                <select class="form-input"
-                        @bind="selectedWorkoutDayId"
-                        disabled="@(workoutDays.Count == 0)">
-
-                    <option value="0">Select a workout day</option>
-
-                    @foreach (var day in workoutDays)
-                    {
-                        <option value="@day.Id">
-                            Day @day.DayNumber — @day.Name
-                        </option>
-                    }
-
-                </select>
-            </div>
-
-            @if (!string.IsNullOrWhiteSpace(errorMessage))
-            {
-                <div class="error-message">
-                    @errorMessage
-                </div>
-            }
+        <div class="resume-actions">
 
             <button class="primary-button"
-                    @onclick="StartWorkout">
-                Start Workout
+                    @onclick="ResumeWorkout">
+                Resume Workout
+            </button>
+
+            <button class="danger-button"
+                    @onclick="AskToTerminateWorkout">
+                Terminate
             </button>
 
         </div>
+
+    </div>
+        }
+
+
+        @if (workoutDays.Count == 0)
+        {
+            <div class="empty-state">
+
+                <span class="empty-state-icon">
+                    🏋️
+                </span>
+
+                <h2>
+                    No workouts available
+                </h2>
+
+                <p>
+                    The fixed workout plan could not be found.
+                </p>
+
+            </div>
+        }
+        else
+        {
+            <div class="workout-day-grid">
+
+                @foreach (var day in workoutDays)
+                {
+                    <button class="workout-day-card"
+                            @onclick="() =>
+                            StartWorkout(day)">
+
+            <span class="day-number">
+                DAY @day.DayNumber
+            </span>
+
+                        <h2>
+                            @day.Name
+                        </h2>
+
+                        <p>
+                            Start workout
+                        </p>
+
+                    </button>
+                }
+
+            </div>
+        }
     }
 
 </div>
 
+
+@if (showTerminateConfirmation)
+{
+    <div class="confirm-overlay">
+
+        <div class="confirm-dialog">
+
+            <h2>
+                Terminate workout?
+            </h2>
+
+            <p>
+                This unfinished workout and all entered sets
+                will be permanently deleted.
+            </p>
+
+            <div class="confirm-actions">
+
+                <button class="secondary-button"
+                        @onclick="CancelTerminateWorkout">
+                    Keep Workout
+                </button>
+
+                <button class="danger-button"
+                        @onclick="ConfirmTerminateWorkout">
+                    Terminate
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+}
+
+
 @code {
-    private List<WorkoutProgram> programs = new();
-    private List<WorkoutDay> workoutDays = new();
 
-    private int selectedProgramId;
-    private int selectedWorkoutDayId;
+    private List<WorkoutDay>
+        workoutDays = new();
 
-    private string errorMessage = string.Empty;
+    private WorkoutSession?
+        unfinishedSession;
+
+    private WorkoutDay?
+        unfinishedWorkoutDay;
+
     private bool isLoading = true;
+
+    private bool
+        showTerminateConfirmation;
+
 
     protected override async Task OnInitializedAsync()
     {
-        programs = await Database.GetWorkoutProgramsAsync();
+        await LoadPage();
+    }
+
+
+    private async Task LoadPage()
+    {
+        isLoading = true;
+
+        unfinishedSession =
+            await Database
+                .GetActiveWorkoutSessionAsync();
+
+        if (unfinishedSession is not null)
+        {
+            unfinishedWorkoutDay =
+                await Database
+                    .GetWorkoutDayAsync(
+                        unfinishedSession
+                            .WorkoutDayId);
+        }
+        else
+        {
+            unfinishedWorkoutDay = null;
+        }
+
+
+        var programs =
+            await Database
+                .GetWorkoutProgramsAsync();
+
+        var fixedProgram =
+            programs
+                .OrderBy(x => x.Id)
+                .FirstOrDefault();
+
+        if (fixedProgram is not null)
+        {
+            workoutDays =
+                await Database
+                    .GetWorkoutDaysAsync(
+                        fixedProgram.Id);
+        }
+        else
+        {
+            workoutDays.Clear();
+        }
+
+
+        workoutDays =
+            workoutDays
+                .OrderBy(
+                    x => x.DayNumber)
+                .ToList();
+
         isLoading = false;
     }
 
-    private async Task ProgramChanged(ChangeEventArgs eventArgs)
+
+    private void StartWorkout(
+        WorkoutDay day)
     {
-        selectedWorkoutDayId = 0;
-        workoutDays.Clear();
-
-        if (!int.TryParse(
-            eventArgs.Value?.ToString(),
-            out selectedProgramId))
+        // Prevent starting another workout
+        // while one is unfinished.
+        if (unfinishedSession is not null)
         {
-            selectedProgramId = 0;
-            return;
-        }
-
-        if (selectedProgramId == 0)
-            return;
-
-        workoutDays =
-            await Database.GetWorkoutDaysAsync(selectedProgramId);
-    }
-
-    private void StartWorkout()
-    {
-        errorMessage = string.Empty;
-
-        if (selectedWorkoutDayId == 0)
-        {
-            errorMessage = "Please select a workout day.";
             return;
         }
 
         Navigation.NavigateTo(
-            $"/workout/start/{selectedWorkoutDayId}");
+            $"/workout/start/{day.Id}");
+    }
+
+
+    private void ResumeWorkout()
+    {
+        if (unfinishedSession is null)
+            return;
+
+        Navigation.NavigateTo(
+            $"/workout/start/" +
+            $"{unfinishedSession.WorkoutDayId}");
+    }
+
+
+    private void AskToTerminateWorkout()
+    {
+        if (unfinishedSession is null)
+            return;
+
+        showTerminateConfirmation = true;
+    }
+
+
+    private void CancelTerminateWorkout()
+    {
+        showTerminateConfirmation = false;
+    }
+
+
+    private async Task ConfirmTerminateWorkout()
+    {
+        if (unfinishedSession is null)
+            return;
+
+#if ANDROID
+        var androidAlarmService =
+            ServiceProvider.GetService<
+                GymTracker.Platforms.Android
+                    .AndroidRestAlarmService>();
+
+        androidAlarmService?.CancelAlarm();
+#endif
+
+        await Database
+            .TerminateActiveWorkoutAsync(
+                unfinishedSession.Id);
+
+        showTerminateConfirmation = false;
+
+        unfinishedSession = null;
+
+        unfinishedWorkoutDay = null;
+
+        // Reload the page so the workout
+        // selector becomes available again.
+        await LoadPage();
     }
 }

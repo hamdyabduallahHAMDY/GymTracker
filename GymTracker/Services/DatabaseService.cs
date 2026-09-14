@@ -14,5 +14,6 @@ public class DatabaseService
     public async Task InitializeAsync()
     {
         await Database.InitAsync();
+        await Database.SeedFixedWorkoutPlanAsync();
     }
 }

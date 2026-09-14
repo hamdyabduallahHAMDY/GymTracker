@@ -102,6 +102,15 @@
 
                         <div class="exercise-actions">
 
+                            <label class="side-tracking-toggle">
+                                <input type="checkbox"
+                                       checked="@exercise.IsUnilateral"
+                                       @onchange="eventArgs =>
+                                       UpdateSideTracking(exercise, eventArgs)" />
+
+                                <span>Left &amp; Right</span>
+                            </label>
+
                             <button class="secondary-button"
                                     @onclick="() => OpenHistory(exercise.Id)">
                                 History
@@ -217,6 +226,16 @@
         {
             isDeleting = false;
         }
+    }
+
+    private async Task UpdateSideTracking(
+        Exercise exercise,
+        ChangeEventArgs eventArgs)
+    {
+        exercise.IsUnilateral =
+            eventArgs.Value is true;
+
+        await Database.SaveExerciseAsync(exercise);
     }
 
     private void OpenHistory(int exerciseId)

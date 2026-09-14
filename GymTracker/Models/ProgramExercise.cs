@@ -14,4 +14,6 @@ public class ProgramExercise
     public int Order { get; set; }
 
     public int PlannedSets { get; set; }
+
+    public double RestMinutes { get; set; } = 3;
 }

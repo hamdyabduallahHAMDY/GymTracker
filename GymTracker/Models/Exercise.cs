@@ -10,4 +10,6 @@ public class Exercise
     [Indexed]
 
     public string Name { get; set; } = string.Empty;
+
+    public bool IsUnilateral { get; set; }
 }

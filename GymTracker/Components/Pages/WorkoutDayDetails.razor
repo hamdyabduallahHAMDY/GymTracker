@@ -2,6 +2,7 @@
 
 @using GymTracker.Data
 @using GymTracker.Models
+@using System.Globalization
 
 @inject AppDatabase Database
 @inject NavigationManager Navigation
@@ -31,7 +32,7 @@
 
                 <h1>@workoutDay.Name</h1>
 
-                <p>Add exercises and choose planned sets.</p>
+                <p>Configure planned sets and rest time.</p>
             </div>
 
             <button class="secondary-button"
@@ -116,18 +117,40 @@
                             <h2>@item.Exercise.Name</h2>
                         </div>
 
-                        <div class="exercise-set-control">
+                        <div class="exercise-settings-controls">
 
-                            <label>Planned sets</label>
+                            <div class="exercise-set-control">
 
-                            <input type="number"
-                                   min="1"
-                                   max="20"
-                                   value="@item.ProgramExercise.PlannedSets"
-                                   @onchange="eventArgs =>
-                                   UpdatePlannedSets(item, eventArgs)" />
+                                <label>Sets</label>
 
-            </div>
+                                <input type="number"
+                                       min="1"
+                                       max="20"
+                                       inputmode="numeric"
+                                       value="@item.ProgramExercise.PlannedSets"
+                                       @onchange="eventArgs =>
+                                       UpdatePlannedSets(item, eventArgs)" />
+
+                            </div>
+
+                            <div class="exercise-set-control">
+
+                                <label>Rest (min)</label>
+
+                                <input type="number"
+                                       min="0.25"
+                                       max="30"
+                                       step="0.25"
+                                       inputmode="decimal"
+                                       value="@item.ProgramExercise.RestMinutes.ToString(
+                                           "0.##",
+                                           CultureInfo.InvariantCulture)"
+                                       @onchange="eventArgs =>
+                                       UpdateRestMinutes(item, eventArgs)" />
+
+                            </div>
+
+                        </div>
 
                         <div class="exercise-actions">
 
@@ -266,6 +289,7 @@
             WorkoutDayId = WorkoutDayId,
             ExerciseId = selectedExerciseId,
             PlannedSets = plannedSets,
+            RestMinutes = 3,
             Order = nextOrder
         });
 
@@ -290,6 +314,33 @@
             return;
 
         item.ProgramExercise.PlannedSets = newSetCount;
+
+        await Database.UpdateProgramExerciseAsync(
+            item.ProgramExercise);
+    }
+
+    private async Task UpdateRestMinutes(
+        DayExerciseViewModel item,
+        ChangeEventArgs eventArgs)
+    {
+        if (!double.TryParse(
+                eventArgs.Value?.ToString(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var restMinutes) ||
+            !double.IsFinite(restMinutes) ||
+            restMinutes < 0.25 ||
+            restMinutes > 30)
+        {
+            errorMessage =
+                "Rest time must be between 0.25 and 30 minutes.";
+
+            StateHasChanged();
+            return;
+        }
+
+        errorMessage = string.Empty;
+        item.ProgramExercise.RestMinutes = restMinutes;
 
         await Database.UpdateProgramExerciseAsync(
             item.ProgramExercise);

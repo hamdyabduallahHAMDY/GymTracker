@@ -110,6 +110,7 @@
                     <span>Weight</span>
                     <span>Reps</span>
                     <span>Set</span>
+                    <span>Side</span>
                 </div>
 
                 @foreach (var record in records
@@ -131,6 +132,10 @@
 
                         <span>
                             @record.SetNumber
+                        </span>
+
+                        <span class="history-side @GetSideCssClass(record.Side)">
+                            @GetSideLabel(record.Side)
                         </span>
                     </div>
                 }
@@ -189,13 +194,15 @@
                 Date = session.Date,
                 Weight = set.Weight,
                 Reps = set.Reps,
-                SetNumber = set.SetNumber
+                SetNumber = set.SetNumber,
+                Side = set.Side ?? string.Empty
             });
         }
 
         records = records
             .OrderBy(record => record.Date)
             .ThenBy(record => record.SetNumber)
+            .ThenBy(record => record.Side)
             .ToList();
 
         isLoading = false;
@@ -224,7 +231,7 @@
             records.Max(record => record.Weight) + 5;
 
         var maximumReps =
-            Math.Max(1, records.Max(record => record.Reps) + 2);
+            Math.Max(1d, records.Max(record => record.Reps) + 2);
 
         if (Math.Abs(maximumWeight - minimumWeight) < 0.01)
         {
@@ -433,38 +440,64 @@
 
         builder.CloseElement();
 
-        // Scatter points.
-        foreach (var record in records)
-        {
-            var x =
-                left +
-                (record.Weight - minimumWeight) /
-                (maximumWeight - minimumWeight) *
-                chartWidth;
+        var chartPoints = records
+            .Select(record => new
+            {
+                Record = record,
+                X = left +
+                    (record.Weight - minimumWeight) /
+                    (maximumWeight - minimumWeight) *
+                    chartWidth,
+                Y = top +
+                    chartHeight -
+                    record.Reps /
+                    maximumReps *
+                    chartHeight
+            })
+            .ToList();
 
-            var y =
-                top +
-                chartHeight -
-                record.Reps /
-                maximumReps *
-                chartHeight;
+        foreach (var lineGroup in chartPoints
+                     .GroupBy(point => point.Record.Side))
+        {
+            if (lineGroup.Count() <= 1)
+                continue;
+
+            var linePoints = string.Join(
+                " ",
+                lineGroup.Select(point =>
+                    FormattableString.Invariant(
+                        $"{point.X:0.###},{point.Y:0.###}")));
+
+            builder.OpenElement(sequence++, "polyline");
+            builder.AddAttribute(sequence++, "points", linePoints);
+            builder.AddAttribute(
+                sequence++,
+                "class",
+                $"scatter-progress-line {GetSideCssClass(lineGroup.Key)}");
+            builder.CloseElement();
+        }
+
+        // Scatter points.
+        foreach (var point in chartPoints)
+        {
+            var record = point.Record;
 
             builder.OpenElement(sequence++, "circle");
 
-            builder.AddAttribute(sequence++, "cx", x);
-            builder.AddAttribute(sequence++, "cy", y);
+            builder.AddAttribute(sequence++, "cx", point.X);
+            builder.AddAttribute(sequence++, "cy", point.Y);
             builder.AddAttribute(sequence++, "r", 7);
 
             builder.AddAttribute(
                 sequence++,
                 "class",
-                "scatter-point");
+                $"scatter-point {GetSideCssClass(record.Side)}");
 
             builder.OpenElement(sequence++, "title");
 
             builder.AddContent(
                 sequence++,
-                $"{record.Weight:0.#} kg × {record.Reps} reps — {record.Date:dd MMM yyyy}");
+                $"{GetSideLabel(record.Side)}: {record.Weight:0.#} kg × {record.Reps} reps — {record.Date:dd MMM yyyy}");
 
             builder.CloseElement();
             builder.CloseElement();
@@ -479,6 +512,19 @@
         Navigation.NavigateTo("/exercises");
     }
 
+    private static string GetSideLabel(string? side) =>
+        string.IsNullOrWhiteSpace(side)
+            ? "Both"
+            : side;
+
+    private static string GetSideCssClass(string? side) =>
+        side switch
+        {
+            "Left" => "side-left",
+            "Right" => "side-right",
+            _ => "side-standard"
+        };
+
     private class ExerciseSetRecord
     {
         public DateTime Date { get; set; }
@@ -488,5 +534,8 @@
         public int Reps { get; set; }
 
         public int SetNumber { get; set; }
+
+        public string Side { get; set; } = string.Empty;
     }
-    }
+
+}

@@ -14,12 +14,7 @@
 }
 
 .brand-icon {
-    display: grid;
-    width: 2.4rem;
-    height: 2.4rem;
-    place-items: center;
-    border-radius: 0.75rem;
-    background: #22c55e;
+    background: #2563eb;
 }
 
 .navbar-toggler {
@@ -70,7 +65,7 @@
 
         .nav-item ::deep .nav-link.active {
             color: white;
-            background: #16a34a;
+            background: #2563eb;
         }
 
 .nav-icon {

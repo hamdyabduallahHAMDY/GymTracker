@@ -13,6 +13,8 @@ public class WorkoutSet
 
     public int SetNumber { get; set; }
 
+    public string Side { get; set; } = string.Empty;
+
     public double Weight { get; set; }
 
     public int Reps { get; set; }

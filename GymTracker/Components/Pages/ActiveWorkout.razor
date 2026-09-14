@@ -1,12 +1,21 @@
 ﻿@page "/workout/start/{WorkoutDayId:int}"
-
+@using Microsoft.JSInterop
 @using System.Diagnostics
 @using GymTracker.Data
 @using GymTracker.Models
+@using Plugin.Maui.Audio
 
+@using Microsoft.JSInterop
+@using System.Diagnostics
+@using GymTracker.Data
+@using GymTracker.Models
+@using Plugin.Maui.Audio
+
+@inject IJSRuntime JS
 @inject AppDatabase Database
 @inject NavigationManager Navigation
-
+@inject IAudioManager AudioManager
+@inject IServiceProvider ServiceProvider
 <PageTitle>Active Workout</PageTitle>
 
 <div class="page-container">
@@ -53,36 +62,85 @@
             </div>
 
         </div>
+        @if (showFinishConfirmation)
+        {
+            <div class="confirm-overlay">
+                <div class="confirm-dialog">
+
+                    <h2>Finish workout?</h2>
+
+                    <p>
+                        Are you sure you want to finish this workout?
+                    </p>
+
+                    <div class="confirm-actions">
+                        <button class="secondary-button"
+                                @onclick="CancelFinishWorkout">
+                            Keep Training
+                        </button>
+
+                        <button class="danger-button"
+                                @onclick="ConfirmFinishWorkout">
+                            Finish Workout
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        }
+
+        @if (restTimerActive)
+        {
+            <div class="rest-timer-card">
+
+                <div>
+                    <span class="rest-timer-label">
+                        REST
+                    </span>
+
+                    <strong class="rest-timer-time">
+                        @RestTimerDisplay
+                    </strong>
+                </div>
+
+                <button class="secondary-button"
+                        @onclick="StopRestTimer">
+                    Skip
+                </button>
+
+            </div>
+        }
+
+
 
         <div class="active-exercise-list">
 
             @foreach (var exercise in exercises)
             {
                 <section class="active-exercise-card">
-
                     <div class="active-exercise-title">
-                        <div>
-                            <span class="exercise-order">
-                                Exercise @exercise.Order
-                            </span>
 
-                            <h2>@exercise.ExerciseName</h2>
-                        </div>
+                        <h2>@exercise.ExerciseName</h2>
 
-                        <button class="secondary-button"
+                        <button class="secondary-button compact-button"
                                 @onclick="() => AddSet(exercise)">
-                            + Add Set
+                            + Set
                         </button>
+
                     </div>
+
 
                     <div class="set-table">
 
-                        <div class="set-table-header">
-                            <span>Set</span>
-                            <span>Weight (kg)</span>
-                            <span>Reps</span>
-                            <span></span>
-                        </div>
+                        @if (!exercise.IsUnilateral)
+                        {
+                            <div class="set-table-header">
+                                <span>Set</span>
+                                <span>Weight (kg)</span>
+                                <span>Reps</span>
+                                <span></span>
+                            </div>
+                        }
 
                         @for (var index = 0;
                                         index < exercise.Sets.Count;
@@ -91,30 +149,126 @@
                             var currentIndex = index;
                             var set = exercise.Sets[currentIndex];
 
-                            <div class="set-row">
+                            @if (exercise.IsUnilateral)
+                            {
+                                <div class="unilateral-set">
+                                    <div class="unilateral-set-heading">
+                                        <strong>Set @(currentIndex + 1)</strong>
 
-                                <strong>@(currentIndex + 1)</strong>
+                                        <button class="remove-set-button"
+                                                disabled="@(exercise.Sets.Count == 1)"
+                                                @onclick="() =>
+                                                RemoveSet(exercise, currentIndex)">
+                                            ×
+                                        </button>
+                                    </div>
 
-                                <input type="number"
-                                       min="0"
-                                       step="0.5"
-                                       inputmode="decimal"
-                                       @bind="set.Weight" />
+                                    <div class="unilateral-sides">
+                                        @foreach (var side in new[]
+                                        {
+                                            (Name: LeftSide, Entry: set.Left),
+                                            (Name: RightSide, Entry: set.Right)
+                                        })
+                                        {
+                                            <div class="unilateral-side">
+                                                <strong class="side-name">
+                                                    @side.Name
+                                                </strong>
 
-                                <input type="number"
-                                       min="0"
-                                       inputmode="numeric"
-                                       @bind="set.Reps" />
+                                                <div class="side-inputs">
+                                                    <input type="number"
+                                                           min="0"
+                                                           step="0.5"
+                                                           inputmode="decimal"
+                                                           placeholder="kg"
+                                                           value="@side.Entry.Weight"
+                                                           @onchange="eventArgs =>
+                                                           UpdateWeightAsync(
+                                                               exercise,
+                                                               side.Entry,
+                                                               currentIndex + 1,
+                                                               side.Name,
+                                                               eventArgs)" />
 
-                                <button class="remove-set-button"
-                                        disabled="@(exercise.Sets.Count == 1)"
-                                        @onclick="() =>
-                                        RemoveSet(exercise, currentIndex)">
-                        ×
-                    </button>
+                                                    <input type="number"
+                                                           min="0"
+                                                           inputmode="numeric"
+                                                           placeholder="reps"
+                                                           value="@side.Entry.Reps"
+                                                           @onchange="eventArgs =>
+                                                           UpdateRepsAsync(
+                                                               exercise,
+                                                               side.Entry,
+                                                               currentIndex + 1,
+                                                               side.Name,
+                                                               eventArgs)" />
+                                                </div>
 
-                            </div>
+                                                @if (side.Entry.PreviousWeight.HasValue &&
+                                                     side.Entry.PreviousReps.HasValue)
+                                                {
+                                                    <div class="side-previous-performance">
+                                                        Last:
+                                                        <span>
+                                                            @side.Entry.PreviousWeight.Value.ToString("0.##") kg × @side.Entry.PreviousReps
+                                                        </span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="set-row">
+                                    <strong>@(currentIndex + 1)</strong>
+
+                                    <input type="number"
+                                           min="0"
+                                           step="0.5"
+                                           inputmode="decimal"
+                                           value="@set.Standard.Weight"
+                                           @onchange="eventArgs =>
+                                           UpdateWeightAsync(
+                                               exercise,
+                                               set.Standard,
+                                               currentIndex + 1,
+                                               string.Empty,
+                                               eventArgs)" />
+
+                                    <input type="number"
+                                           min="0"
+                                           inputmode="numeric"
+                                           value="@set.Standard.Reps"
+                                           @onchange="eventArgs =>
+                                           UpdateRepsAsync(
+                                               exercise,
+                                               set.Standard,
+                                               currentIndex + 1,
+                                               string.Empty,
+                                               eventArgs)" />
+
+                                    <button class="remove-set-button"
+                                            disabled="@(exercise.Sets.Count == 1)"
+                                            @onclick="() =>
+                                            RemoveSet(exercise, currentIndex)">
+                                        ×
+                                    </button>
+                                </div>
+
+                                @if (set.Standard.PreviousWeight.HasValue &&
+                                     set.Standard.PreviousReps.HasValue)
+                                {
+                                    <div class="previous-performance">
+                                        Last:
+                                        <span>
+                                            @set.Standard.PreviousWeight.Value.ToString("0.##") kg × @set.Standard.PreviousReps
+                                        </span>
+                                    </div>
                                 }
+                            }
+                        }
 
                     </div>
 
@@ -140,10 +294,8 @@
 
             <button class="primary-button"
                     disabled="@isSaving"
-                    @onclick="FinishWorkout">
-
+                    @onclick="AskToFinishWorkout">
                 @(isSaving ? "Saving..." : "Finish Workout")
-
             </button>
 
         </div>
@@ -152,12 +304,44 @@
 </div>
 
 @code {
+    private const string LeftSide = "Left";
+    private const string RightSide = "Right";
+
     [Parameter]
     public int WorkoutDayId { get; set; }
 
+
+    private int restSecondsRemaining;
+
+    private CancellationTokenSource? restTimerCancellation;
+
+    private bool restTimerActive;
+
+    private string RestTimerDisplay =>
+        TimeSpan
+            .FromSeconds(restSecondsRemaining)
+            .ToString(@"mm\:ss");
+
+    private bool showFinishConfirmation;
+
+    private void AskToFinishWorkout()
+    {
+        showFinishConfirmation = true;
+    }
+
+    private void CancelFinishWorkout()
+    {
+        showFinishConfirmation = false;
+    }
+
+    private async Task ConfirmFinishWorkout()
+    {
+        showFinishConfirmation = false;
+        await FinishWorkout();
+    }
     private WorkoutDay? workoutDay;
     private List<WorkoutExerciseEntry> exercises = new();
-
+    private WorkoutSession? activeSession;
     private readonly Stopwatch stopwatch = new();
     private PeriodicTimer? timer;
     private CancellationTokenSource? timerCancellation;
@@ -167,15 +351,140 @@
 
     private bool isLoading = true;
     private bool isSaving;
+    private Dictionary<
+        (int ExerciseId, int SetNumber, string Side),
+        WorkoutSet>
+        previousWorkoutSets = new();
 
     protected override async Task OnParametersSetAsync()
     {
         await LoadWorkout();
     }
+    private TimeSpan GetCurrentWorkoutDuration()
+    {
+        if (activeSession is null)
+            return TimeSpan.Zero;
 
+        return DateTime.Now - activeSession.Date;
+    }
+    private async Task StartRestTimerAsync(
+        double restMinutes)
+    {
+        StopRestTimer();
+
+        var safeRestMinutes =
+            double.IsFinite(restMinutes)
+                ? Math.Clamp(restMinutes, 0.25, 30)
+                : 3;
+
+        var restDurationSeconds =
+            Math.Max(
+                1,
+                (int)Math.Round(
+                    safeRestMinutes * 60,
+                    MidpointRounding.AwayFromZero));
+
+        restSecondsRemaining = restDurationSeconds;
+        if (activeSession is not null)
+        {
+            activeSession.RestEndsAt =
+                DateTime.Now.AddSeconds(restDurationSeconds);
+
+            await Database.SaveWorkoutSessionAsync(activeSession);
+#if ANDROID
+var androidAlarmService =
+    ServiceProvider.GetService<
+        GymTracker.Platforms.Android
+            .AndroidRestAlarmService>();
+
+androidAlarmService?.ScheduleAlarm(
+    activeSession.RestEndsAt.Value);
+#endif
+        }
+        restTimerActive = true;
+
+        restTimerCancellation =
+            new CancellationTokenSource();
+
+        var token =
+            restTimerCancellation.Token;
+
+        try
+        {
+            while (restSecondsRemaining > 0)
+            {
+                await Task.Delay(
+                    1000,
+                    token);
+
+                restSecondsRemaining--;
+
+                await InvokeAsync(
+                    StateHasChanged);
+            }
+
+            restTimerActive = false;
+
+            await InvokeAsync(
+                StateHasChanged);
+
+#if !ANDROID
+            await PlayRestFinishedAlarmAsync();
+#endif
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer was restarted or cancelled.
+        }
+    }
+    private void StopRestTimer()
+    {
+        restTimerCancellation?.Cancel();
+
+        restTimerCancellation?.Dispose();
+
+        restTimerCancellation = null;
+
+        restTimerActive = false;
+
+#if ANDROID
+    var androidAlarmService =
+        ServiceProvider.GetService<
+            GymTracker.Platforms.Android
+                .AndroidRestAlarmService>();
+
+    androidAlarmService?.CancelAlarm();
+#endif
+
+        if (activeSession is not null)
+        {
+            activeSession.RestEndsAt = null;
+
+            _ = Database
+                .SaveWorkoutSessionAsync(
+                    activeSession);
+        }
+    }
+    private async Task PlayRestFinishedAlarmAsync()
+    {
+        using var stream =
+            await FileSystem.OpenAppPackageFileAsync("alarm.mp3");
+
+        var player =
+            AudioManager.CreatePlayer(stream);
+
+        player.Play();
+
+        await Task.Delay(5000);
+
+        player.Stop();
+
+        player.Dispose();
+    }
     private async Task LoadWorkout()
     {
         isLoading = true;
+        errorMessage = string.Empty;
 
         workoutDay =
             await Database.GetWorkoutDayAsync(WorkoutDayId);
@@ -186,6 +495,35 @@
             return;
         }
 
+        // Look for an unfinished workout session.
+        activeSession =
+            await Database.GetActiveWorkoutSessionAsync();
+
+        // If the unfinished session belongs to another workout day,
+        // do not use it for this page.
+        if (activeSession is not null &&
+            activeSession.WorkoutDayId != WorkoutDayId)
+        {
+            activeSession = null;
+        }
+
+        // If there is no unfinished session for this workout day,
+        // create one immediately.
+        if (activeSession is null)
+        {
+            activeSession = new WorkoutSession
+            {
+                WorkoutDayId = WorkoutDayId,
+                Date = DateTime.Now,
+                Duration = TimeSpan.Zero,
+                IsCompleted = false,
+                RestEndsAt = null
+            };
+
+            await Database.SaveWorkoutSessionAsync(activeSession);
+        }
+
+        // Load the planned exercises for this workout day.
         var programExercises =
             await Database.GetProgramExercisesAsync(WorkoutDayId);
 
@@ -204,14 +542,18 @@
             {
                 ExerciseId = exercise.Id,
                 ExerciseName = exercise.Name,
-                Order = programExercise.Order
+                Order = programExercise.Order,
+                RestMinutes = programExercise.RestMinutes,
+                IsUnilateral = exercise.IsUnilateral
             };
 
+            // Create the planned number of sets.
             for (var setNumber = 0;
                  setNumber < programExercise.PlannedSets;
                  setNumber++)
             {
-                entry.Sets.Add(new WorkoutSetEntry());
+                entry.Sets.Add(
+                    new WorkoutSetEntry());
             }
 
             exercises.Add(entry);
@@ -221,14 +563,115 @@
             .OrderBy(item => item.Order)
             .ToList();
 
+        // Restore previously saved sets.
+        var savedSets =
+            await Database.GetWorkoutSetsForSessionAsync(
+                activeSession.Id);
+
+        foreach (var exercise in exercises)
+        {
+            var savedExerciseSets =
+                savedSets
+                    .Where(set =>
+                        set.ExerciseId == exercise.ExerciseId)
+                    .OrderBy(set => set.SetNumber)
+                    .ToList();
+
+            foreach (var savedSet in savedExerciseSets)
+            {
+                // If the user previously added extra sets,
+                // recreate them too.
+                while (exercise.Sets.Count <
+                       savedSet.SetNumber)
+                {
+                    exercise.Sets.Add(
+                        new WorkoutSetEntry());
+                }
+
+                var targetSet =
+                    exercise.Sets[
+                        savedSet.SetNumber - 1];
+
+                var targetEntry = GetSideEntry(
+                    targetSet,
+                    savedSet.Side);
+
+                targetEntry.Id =
+                    savedSet.Id;
+
+                targetEntry.Weight =
+                    savedSet.Weight;
+
+                targetEntry.Reps =
+                    savedSet.Reps;
+
+                // Prevent restored completed sets from
+                // automatically restarting the rest timer.
+                targetEntry.RestStarted =
+                    savedSet.Weight > 0 &&
+                    savedSet.Reps > 0;
+            }
+        }
+
+        var previousSets =
+            await Database.GetPreviousWorkoutSetsAsync(
+                activeSession.Id);
+
+        previousWorkoutSets = previousSets.ToDictionary(
+            set => (
+                set.ExerciseId,
+                set.SetNumber,
+                set.Side ?? string.Empty));
+
+        foreach (var exercise in exercises)
+        {
+            ApplyPreviousPerformance(exercise);
+        }
+
+        // Restore the rest timer if it was running
+        // before the app was closed.
+        if (activeSession.RestEndsAt is not null)
+        {
+            var remaining =
+                activeSession.RestEndsAt.Value -
+                DateTime.Now;
+
+            if (remaining.TotalSeconds > 0)
+            {
+                restSecondsRemaining =
+                    (int)Math.Ceiling(
+                        remaining.TotalSeconds);
+
+                restTimerActive = true;
+
+                restTimerCancellation?.Cancel();
+                restTimerCancellation?.Dispose();
+
+                restTimerCancellation =
+                    new CancellationTokenSource();
+
+                _ = ContinueRestTimerAsync(
+                    restTimerCancellation.Token);
+            }
+            else
+            {
+                // Rest already finished while the app was closed.
+                activeSession.RestEndsAt = null;
+
+                await Database.SaveWorkoutSessionAsync(
+                    activeSession);
+            }
+        }
+
         isLoading = false;
 
-        if (exercises.Count > 0 && !stopwatch.IsRunning)
+        // Start the workout duration timer.
+        if (exercises.Count > 0 &&
+            !stopwatch.IsRunning)
         {
             StartTimer();
         }
     }
-
     private void StartTimer()
     {
         stopwatch.Start();
@@ -238,7 +681,41 @@
 
         _ = UpdateTimerAsync(timerCancellation.Token);
     }
+    private async Task ContinueRestTimerAsync(
+    CancellationToken token)
+    {
+        try
+        {
+            while (restSecondsRemaining > 0)
+            {
+                await Task.Delay(1000, token);
 
+                restSecondsRemaining--;
+
+                await InvokeAsync(StateHasChanged);
+            }
+
+            restTimerActive = false;
+
+            if (activeSession is not null)
+            {
+                activeSession.RestEndsAt = null;
+
+                await Database.SaveWorkoutSessionAsync(
+                    activeSession);
+            }
+
+#if !ANDROID
+            await PlayRestFinishedAlarmAsync();
+#endif
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer was cancelled or restarted.
+        }
+    }
     private async Task UpdateTimerAsync(
         CancellationToken cancellationToken)
     {
@@ -248,7 +725,8 @@
                    await timer.WaitForNextTickAsync(cancellationToken))
             {
                 elapsedTime =
-                    stopwatch.Elapsed.ToString(@"hh\:mm\:ss");
+    GetCurrentWorkoutDuration()
+        .ToString(@"hh\:mm\:ss");
 
                 await InvokeAsync(StateHasChanged);
             }
@@ -261,7 +739,28 @@
 
     private void AddSet(WorkoutExerciseEntry exercise)
     {
-        exercise.Sets.Add(new WorkoutSetEntry());
+        var set = new WorkoutSetEntry();
+        var setNumber = exercise.Sets.Count + 1;
+
+        SetPreviousPerformance(
+            exercise.ExerciseId,
+            setNumber,
+            string.Empty,
+            set.Standard);
+
+        SetPreviousPerformance(
+            exercise.ExerciseId,
+            setNumber,
+            LeftSide,
+            set.Left);
+
+        SetPreviousPerformance(
+            exercise.ExerciseId,
+            setNumber,
+            RightSide,
+            set.Right);
+
+        exercise.Sets.Add(set);
     }
 
     private void RemoveSet(
@@ -272,6 +771,65 @@
             return;
 
         exercise.Sets.RemoveAt(index);
+        ApplyPreviousPerformance(exercise);
+    }
+
+    private void ApplyPreviousPerformance(
+        WorkoutExerciseEntry exercise)
+    {
+        for (var index = 0;
+             index < exercise.Sets.Count;
+             index++)
+        {
+            SetPreviousPerformance(
+                exercise.ExerciseId,
+                index + 1,
+                string.Empty,
+                exercise.Sets[index].Standard);
+
+            SetPreviousPerformance(
+                exercise.ExerciseId,
+                index + 1,
+                LeftSide,
+                exercise.Sets[index].Left);
+
+            SetPreviousPerformance(
+                exercise.ExerciseId,
+                index + 1,
+                RightSide,
+                exercise.Sets[index].Right);
+        }
+    }
+
+    private void SetPreviousPerformance(
+        int exerciseId,
+        int setNumber,
+        string side,
+        WorkoutSideEntry entry)
+    {
+        if (previousWorkoutSets.TryGetValue(
+                (exerciseId, setNumber, side),
+                out var previousSet))
+        {
+            entry.PreviousWeight = previousSet.Weight;
+            entry.PreviousReps = previousSet.Reps;
+            return;
+        }
+
+        entry.PreviousWeight = null;
+        entry.PreviousReps = null;
+    }
+
+    private static WorkoutSideEntry GetSideEntry(
+        WorkoutSetEntry set,
+        string? side)
+    {
+        return side switch
+        {
+            LeftSide => set.Left,
+            RightSide => set.Right,
+            _ => set.Standard
+        };
     }
 
     private async Task FinishWorkout()
@@ -280,13 +838,15 @@
 
         var completedSets = exercises
             .SelectMany(exercise =>
-                exercise.Sets.Select((set, index) => new
-                {
-                    exercise.ExerciseId,
-                    SetNumber = index + 1,
-                    set.Weight,
-                    set.Reps
-                }))
+                exercise.Sets.SelectMany((set, index) =>
+                    GetEntriesForExercise(exercise, set)
+                        .Select(sideEntry => new
+                        {
+                            ExerciseId = exercise.ExerciseId,
+                            SetNumber = index + 1,
+                            sideEntry.Entry.Weight,
+                            sideEntry.Entry.Reps
+                        })))
             .Where(set => set.Weight > 0 || set.Reps > 0)
             .ToList();
 
@@ -305,32 +865,50 @@
             return;
         }
 
+        if (activeSession is null)
+        {
+            errorMessage =
+                "No active workout session was found.";
+            return;
+        }
+
         isSaving = true;
 
         try
         {
             StopTimer();
+            StopRestTimer();
 
-            var session = new WorkoutSession
+            activeSession.Duration =
+    GetCurrentWorkoutDuration();
+            activeSession.IsCompleted = true;
+            activeSession.RestEndsAt = null;
+
+            await Database.SaveWorkoutSessionAsync(activeSession);
+
+            // Safety save:
+            // make sure every completed set is stored.
+            foreach (var exercise in exercises)
             {
-                WorkoutDayId = WorkoutDayId,
-                Date = DateTime.Now,
-                Duration = stopwatch.Elapsed
-            };
+                for (var index = 0;
+                     index < exercise.Sets.Count;
+                    index++)
+                {
+                    var set = exercise.Sets[index];
 
-            await Database.SaveWorkoutSessionAsync(session);
-
-            foreach (var set in completedSets)
-            {
-                await Database.SaveWorkoutSetAsync(
-                    new WorkoutSet
+                    foreach (var (side, entry) in
+                             GetEntriesForExercise(exercise, set))
                     {
-                        WorkoutSessionId = session.Id,
-                        ExerciseId = set.ExerciseId,
-                        SetNumber = set.SetNumber,
-                        Weight = set.Weight,
-                        Reps = set.Reps
-                    });
+                        if (entry.Weight <= 0 && entry.Reps <= 0)
+                            continue;
+
+                        await SaveSetAsync(
+                            exercise,
+                            entry,
+                            index + 1,
+                            side);
+                    }
+                }
             }
 
             Navigation.NavigateTo("/history");
@@ -338,7 +916,19 @@
         catch (Exception exception)
         {
             errorMessage =
-                $"Unable to save workout: {exception.Message}";
+                $"Unable to finish workout: {exception.Message}";
+
+            // If saving fails, keep the session unfinished.
+            activeSession.IsCompleted = false;
+
+            try
+            {
+                await Database.SaveWorkoutSessionAsync(activeSession);
+            }
+            catch
+            {
+                // Ignore secondary save failure here.
+            }
 
             if (!stopwatch.IsRunning)
             {
@@ -350,7 +940,6 @@
             isSaving = false;
         }
     }
-
     private void CancelWorkout()
     {
         StopTimer();
@@ -383,14 +972,146 @@
 
         public int Order { get; set; }
 
+        public double RestMinutes { get; set; } = 3;
+
+        public bool IsUnilateral { get; set; }
+
         public List<WorkoutSetEntry> Sets { get; set; } =
             new();
     }
+    private async Task SaveSetAsync(
+        WorkoutExerciseEntry exercise,
+        WorkoutSideEntry entry,
+        int setNumber,
+        string side)
+    {
+        if (activeSession is null)
+            return;
 
+        if (entry.Weight <= 0 && entry.Reps <= 0)
+            return;
+
+        var workoutSet = new WorkoutSet
+        {
+            Id = entry.Id,
+            WorkoutSessionId = activeSession.Id,
+            ExerciseId = exercise.ExerciseId,
+            SetNumber = setNumber,
+            Side = side,
+            Weight = entry.Weight,
+            Reps = entry.Reps
+        };
+
+        await Database.SaveWorkoutSetAsync(workoutSet);
+
+        entry.Id = workoutSet.Id;
+    }
     private class WorkoutSetEntry
     {
+        public WorkoutSideEntry Standard { get; } = new();
+
+        public WorkoutSideEntry Left { get; } = new();
+
+        public WorkoutSideEntry Right { get; } = new();
+    }
+
+    private class WorkoutSideEntry
+    {
+        public int Id { get; set; }
+
         public double Weight { get; set; }
 
         public int Reps { get; set; }
+
+        public double? PreviousWeight { get; set; }
+
+        public int? PreviousReps { get; set; }
+
+        public bool RestStarted { get; set; }
+    }
+
+    private static IEnumerable<
+        (string Side, WorkoutSideEntry Entry)>
+        GetEntriesForExercise(
+            WorkoutExerciseEntry exercise,
+            WorkoutSetEntry set)
+    {
+        if (exercise.IsUnilateral)
+        {
+            yield return (LeftSide, set.Left);
+            yield return (RightSide, set.Right);
+            yield break;
+        }
+
+        yield return (string.Empty, set.Standard);
+    }
+
+    private async Task UpdateWeightAsync(
+        WorkoutExerciseEntry exercise,
+        WorkoutSideEntry entry,
+        int setNumber,
+        string side,
+        ChangeEventArgs eventArgs)
+    {
+        if (!double.TryParse(
+                eventArgs.Value?.ToString(),
+                out var weight))
+        {
+            return;
+        }
+
+        entry.Weight = weight;
+
+        await SaveSetAsync(
+            exercise,
+            entry,
+            setNumber,
+            side);
+
+        await SetChanged(exercise, entry);
+    }
+
+    private async Task UpdateRepsAsync(
+        WorkoutExerciseEntry exercise,
+        WorkoutSideEntry entry,
+        int setNumber,
+        string side,
+        ChangeEventArgs eventArgs)
+    {
+        if (!int.TryParse(
+                eventArgs.Value?.ToString(),
+                out var reps))
+        {
+            return;
+        }
+
+        entry.Reps = reps;
+
+        await SaveSetAsync(
+            exercise,
+            entry,
+            setNumber,
+            side);
+
+        await SetChanged(exercise, entry);
+    }
+
+    private async Task SetChanged(
+        WorkoutExerciseEntry exercise,
+        WorkoutSideEntry entry)
+    {
+        if (entry.RestStarted)
+            return;
+
+        if (entry.Weight <= 0)
+            return;
+
+        if (entry.Reps <= 0)
+            return;
+
+        entry.RestStarted = true;
+
+        await StartRestTimerAsync(
+            exercise.RestMinutes);
     }
 }
